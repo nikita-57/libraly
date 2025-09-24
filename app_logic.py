@@ -1,42 +1,65 @@
-import sqlite3
-import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 
 class AppLogic:
-    def __init__(self, db_name="library.db"):
-        self.db_name = db_name
-        self.create_db()
+    def __init__(self):
+        self.connection = psycopg2.connect(
+            dbname="postgres",
+            user="postgres",
+            password="your_password",
+            host="localhost",
+            port="5432"
+        )
+        self.connection.autocommit = True
 
-    def create_db(self):
-        if not os.path.exists(self.db_name):
-            conn = sqlite3.connect(self.db_name)
-            cursor = conn.cursor()
-            cursor.execute('''
-                CREATE TABLE books (
-                    id INTEGER PRIMARY KEY,
-                    title TEXT,
-                    author TEXT,
-                    status TEXT
-                )
-            ''')
-            conn.commit()
-            conn.close()
+    def get_books(self, status_code=None):
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            if status_code:
+                cursor.execute("""
+                    SELECT b.id, b.title, b.author, b.description, s.name AS status
+                    FROM books b
+                    JOIN statuses s ON b.status_id = s.id
+                    WHERE s.code = %s
+                    ORDER BY b.created_at DESC
+                """, (status_code,))
+            else:
+                cursor.execute("""
+                    SELECT b.id, b.title, b.author, b.description, s.name AS status
+                    FROM books b
+                    JOIN statuses s ON b.status_id = s.id
+                    ORDER BY b.created_at DESC
+                """)
+            return cursor.fetchall()
 
-    def add_book(self, title, author, status="want_to_read"):
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        cursor.execute('INSERT INTO books (title, author, status) VALUES (?, ?, ?)',
-                       (title, author, status))
-        conn.commit()
-        conn.close()
+    def add_book(self, title, author=None, description=None, status_code="want_to_read"):
+        """Добавление книги"""
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM statuses WHERE code = %s", (status_code,))
+            status_id = cursor.fetchone()
+            if not status_id:
+                raise ValueError("Неверный статус книги")
 
-    def get_books(self, status=None):
-        conn = sqlite3.connect(self.db_name)
-        cursor = conn.cursor()
-        if status:
-            cursor.execute('SELECT * FROM books WHERE status=?', (status,))
-        else:
-            cursor.execute('SELECT * FROM books')
-        books = cursor.fetchall()
-        conn.close()
-        return books
+            cursor.execute("""
+                INSERT INTO books (title, author, description, status_id)
+                VALUES (%s, %s, %s, %s)
+            """, (title, author, description, status_id[0]))
+
+    def update_status(self, book_id, new_status_code):
+        """Обновление статуса книги"""
+        with self.connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM statuses WHERE code = %s", (new_status_code,))
+            status_id = cursor.fetchone()
+            if not status_id:
+                raise ValueError("Неверный статус книги")
+
+            cursor.execute("""
+                UPDATE books
+                SET status_id = %s
+                WHERE id = %s
+            """, (status_id[0], book_id))
+
+    def delete_book(self, book_id):
+        """Удаление книги"""
+        with self.connection.cursor() as cursor:
+            cursor.execute("DELETE FROM books WHERE id = %s", (book_id,))

@@ -8,7 +8,7 @@ class AppLogic:
         self.connection = psycopg2.connect(
             dbname="postgres",
             user="postgres",
-            password="",
+            password="Nikitapis0401$",
             host="localhost",
             port="5432"
         )
@@ -70,3 +70,18 @@ class AppLogic:
         """Удаление книги"""
         with self.connection.cursor() as cursor:
             cursor.execute("DELETE FROM books WHERE id = %s", (book_id,))
+
+    def search_books(self, query):
+        """Поиск книг по названию или автору"""
+        with self.connection.cursor(cursor_factory=RealDictCursor) as cursor:
+            search_pattern = f"%{query}%"  # шаблон для поиска
+            cursor.execute("""
+                SELECT b.id, b.title, b.author, b.description, s.name AS status
+                FROM books b
+                JOIN statuses s ON b.status_id = s.id
+                WHERE b.title ILIKE %s OR b.author ILIKE %s
+                ORDER BY b.created_at DESC
+            """, (search_pattern, search_pattern))
+            return cursor.fetchall()
+
+

@@ -7,7 +7,7 @@ from kivymd.uix.menu import MDDropdownMenu
 from kivymd.uix.list import OneLineListItem
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
-
+from kivy.uix.screenmanager import Screen
 
 
 class UILayouts:
@@ -78,14 +78,14 @@ class UILayouts:
 
         # Кнопки главного меню
         buttons = [
-            ("Моя полка", lambda x: (self.load_books(), self.controls.open_screen("my_shelf"))),
-            ("Прочитано", lambda x: (self.load_books("read"), self.controls.open_screen("my_shelf"))),
-            ("Прочитано", lambda x: self.controls.open_screen("my_shelf")),
-            ("Читаю", lambda x: self.controls.open_screen("my_shelf")),
-            ("Хочу прочитать", lambda x: self.controls.open_screen("my_shelf")),
-            ("Добавить книгу", lambda x: self.controls.open_screen("add_book")),
-            ("Поиск", lambda x: self.controls.open_screen("search")),
-        ]
+    ("Моя полка", lambda x: (self.load_books(), self.controls.open_screen("my_shelf"))),
+    ("Прочитано", lambda x: (self.load_books("read"), self.controls.open_screen("my_shelf"))),
+    ("Читаю", lambda x: (self.load_books("reading"), self.controls.open_screen("my_shelf"))),
+    ("Хочу прочитать", lambda x: (self.load_books("want_to_read"), self.controls.open_screen("my_shelf"))),
+    ("Добавить книгу", lambda x: self.controls.open_screen("add_book")),
+    ("Поиск", lambda x: self.controls.open_screen("search")),
+]
+
 
         for text, callback in buttons:
             btn = MDRaisedButton(
@@ -253,19 +253,17 @@ class UILayouts:
 
 
 
-    def load_books(self):
-        print("Загрузка книг...")
+    def load_books(self, status_code=None):
+        """Загружает книги из базы и обновляет список на экране"""
         self.books_container.clear_widgets()
 
         try:
-            books = self.db.get_books()
-            print("Книги из базы:", books)
-
+            books = self.db.get_books(status_code)  # передаём статус в запрос
             if not books:
                 self.books_container.add_widget(
                     Label(
                         text="Нет книг в библиотеке",
-                        color=(0, 0, 0, 1),  # черный цвет текста
+                        color=(0, 0, 0, 1),
                         size_hint_y=None,
                         height=40
                     )
@@ -277,22 +275,123 @@ class UILayouts:
                 author = book['author'] if book['author'] else "Автор неизвестен"
                 status = book['status'] if book['status'] else "Статус не указан"
 
-                # Элемент для одной книги
-                book_label = Label(
-                    text=f"{title} — {author} ({status})",
-                    color=(0, 0, 0, 1),   # делаем текст черным
-                    size_hint_y=None,
-                    height=40
+                self.books_container.add_widget(
+                    Label(
+                        text=f"{title} — {author} ({status})",
+                        color=(0, 0, 0, 1),
+                        size_hint_y=None,
+                        height=40
+                    )
                 )
-                self.books_container.add_widget(book_label)
 
         except Exception as e:
             self.books_container.add_widget(
                 Label(
                     text=f"Ошибка загрузки книг: {e}",
-                    color=(1, 0, 0, 1),  # красный цвет для ошибки
+                    color=(1, 0, 0, 1),
                     size_hint_y=None,
                     height=40
                 )
             )
             print("Ошибка при загрузке книг:", e)
+
+    def create_search_screen(self):
+        screen = Screen(name="search")
+
+        layout = BoxLayout(orientation="vertical", padding=20, spacing=20)
+
+        layout.add_widget(self.create_title_label("Поиск по библиотеке"))
+
+        # Поле для ввода текста
+        self.search_input = MDTextField(
+            hint_text="Введите название или автора",
+            size_hint_x=1,
+            mode="rectangle"
+        )
+        layout.add_widget(self.search_input)
+
+        # Кнопка поиска
+        search_button = MDRaisedButton(
+            text="Найти",
+            size_hint=(None, None),
+            width=200,
+            pos_hint={"center_x": 0.5},
+            on_release=lambda x: self.perform_search()
+        )
+        layout.add_widget(search_button)
+
+        # Прокручиваемый список для результатов
+        scroll_view = ScrollView(size_hint=(1, 1))
+
+        self.search_results_container = BoxLayout(
+            orientation="vertical",
+            spacing=10,
+            size_hint_y=None
+        )
+        self.search_results_container.bind(
+            minimum_height=self.search_results_container.setter('height')
+        )
+
+        scroll_view.add_widget(self.search_results_container)
+        layout.add_widget(scroll_view)
+
+        layout.add_widget(self.create_back_button())
+
+        screen.add_widget(layout)
+        self.manager.add_widget(screen)
+
+
+    def perform_search(self):
+        """Выполняет поиск книг и отображает результаты"""
+        query = self.search_input.text.strip()
+
+        self.search_results_container.clear_widgets()
+
+        if not query:
+            self.search_results_container.add_widget(
+                Label(
+                    text="Введите запрос для поиска",
+                    color=(0, 0, 0, 1),
+                    size_hint_y=None,
+                    height=40
+                )
+            )
+            return
+
+        try:
+            books = self.db.search_books(query)
+
+            if not books:
+                self.search_results_container.add_widget(
+                    Label(
+                        text="Книг не найдено",
+                        color=(0, 0, 0, 1),
+                        size_hint_y=None,
+                        height=40
+                    )
+                )
+                return
+
+            for book in books:
+                title = book['title']
+                author = book['author'] if book['author'] else "Автор неизвестен"
+                status = book['status'] if book['status'] else "Статус не указан"
+
+                self.search_results_container.add_widget(
+                    Label(
+                        text=f"{title} — {author} ({status})",
+                        color=(0, 0, 0, 1),
+                        size_hint_y=None,
+                        height=40
+                    )
+                )
+        except Exception as e:
+            self.search_results_container.add_widget(
+                Label(
+                    text=f"Ошибка поиска: {e}",
+                    color=(1, 0, 0, 1),
+                    size_hint_y=None,
+                    height=40
+                )
+            )
+            print("Ошибка поиска:", e)
